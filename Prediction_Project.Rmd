@@ -1,0 +1,81 @@
+
+## Prediction Project (Machine Learning)
+
+#### Introduction
+This is an attempt to predict how well one of six people performed various barbell exercises. Data was collected using acceleromators on the belt, forearm, arm, and dumbell of the six subjects. The subjects were asked to perform the lifts correctly and incorrectly in 5 different ways. This is given by the "classe" variable in the data set and takes values A-E. I will attempt to predict what "grade" was given to the particular movement based on the accelerometer data provided. 
+
+This seemed to be a classification problem, and as such I chose a random forest algorithm for predicting the classe variable rather than a regression. I split the data into a training and test set, trained the algorithm on the training set, then tested it to gauge the out-of-sample performance. 
+
+#### Data Cleaning
+
+For brevity, I won't show the code to download the data and read.csv. 
+
+```{r load/csv}
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "training.csv")
+train_data <- read.csv("training.csv")
+library(caret)
+```
+
+I quickly checked the data using some simple summary functions: 
+
+```{r dat check}
+str(train_data)
+colSums(is.na(train_data))
+```
+
+There seems to be a bunch of variables that are factor variables or have an excessive amount of NAs. Additionally, a few of the variables seem to be a lot of very similar values repeated (low variance). 
+
+How to deal with the very low variance predictors is not obvious. I elected to eliminate all of them for simplicity, althought this is not always optimal, given that even these variables can contain valuable information for the model to use. That said, after looking over the data I felt I'd still get a very accurate model without trying to figure out whether or not I could improve a little by retaining one or two of the low variance predictors.  
+
+The following steps address these issues by removing low variance predictors, any predictor with more than 5 NA's, and any non-numeric variables. 
+
+
+```{r, dataclean}
+set.seed(1001)
+inTrain <- createDataPartition(y=train_data$classe, p=.75, list=FALSE)
+training <- train_data[inTrain,]
+testing <- train_data[-inTrain,]
+
+df <- training[,-nearZeroVar(training)]
+na1 <- apply(df, 2, function(x)sum(is.na(x))<5)
+clean_train <- df[,na1]
+clean_train2 <- clean_train
+clean_train2$user_name <- NULL
+clean_train2$raw_timestamp_part_1 <- NULL
+clean_train2$raw_timestamp_part_2 <- NULL
+clean_train2$cvtd_timestamp <- NULL
+clean_train2$new_window <- NULL
+clean_train2$X <- NULL
+clean_train2$num_window <- NULL
+```
+
+This leaves us with 52 predictors, all of which are movement characteristics that are either of class "integer" or "numeric", and none of which are low variance. 
+
+#### Model Training
+
+I now train a random forest algorithm on the above cleaned and processed data set. I selected to preprocess the data using a Principle Component Analysis. Given that the remaining predictors are all different movement patterns, a weighted combination of them seemed to make sense, making a PCA appropriate. 
+
+```{r rf train}
+rf10 <- train(classe~., preProcess="pca", method="rf", ntree=250, data=clean_train2)
+
+print(rf10$finalModel)
+```
+
+I set ntree=250 to cut down on computing time, even though this will sacrifice a little accuracy over the default of 500 trees. 
+
+The OOB estimate of error is 2.45%. Thish is probably generous. Below is the confusion matrix for my testing data. The error rate is about .026 (2.6%), so just north of the estimate provided by R. 
+
+```{r test confuse matrix}
+pred <- predict(rf10, newdata = testing)
+testing$predright <- pred==testing$classe
+table(pred, testing$classe)
+
+error_rate <- pred==testing$classe
+table(error_rate)
+127/4904
+
+```
+
+
+In general, the model appears to do pretty well with the A and E values, but struggles a little more to separate between B/C/D. 
+
